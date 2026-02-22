@@ -1,0 +1,68 @@
+#生成基因组注释bed文件
+
+#下载gff文件
+wget https://www.arabidopsis.org/api/download-files/download?filePath=Genes/Araport11_genome_release/Araport11_GFF3_genes_transposons.20250813.gff.gz
+
+#rename and gzip
+gzip -d Araport11_GFF3_genes_transposons.20250813.gff.gz
+
+#TE.bed
+awk '$3=="transposable_element" || $3=="transposon_fragment"' \
+Araport11_GFF3_genes_transposons.gff \
+| awk '{OFS="\t"; print $1,$4-1,$5,"TE"}' \
+> TE.bed
+
+#gene.bed
+awk '$3=="gene"' Araport11_GFF3_genes_transposons.gff \
+| awk '{OFS="\t"; print $1,$4-1,$5,"gene"}' > gene.bed
+
+#exon.bed
+awk '$3=="exon"' Araport11_GFF3_genes_transposons.gff \
+| awk '{OFS="\t"; print $1,$4-1,$5,"exon"}' > exon.bed
+
+
+#生成intron的bed文件
+bedtools subtract -a gene.bed -b exon.bed > intron.bed
+
+#promoter.bed
+samtools faidx TAIR10_chr_all.fas
+cut -f1,2 TAIR10_chr_all.fa.fai > genome.size
+
+bedtools flank \
+-i gene.bed \
+-g genome.size \
+-l 2000 -r 0 -s > promoter.bed
+
+#intergenic.bed
+cat gene.bed TE.bed promoter.bed \
+| sort -k1,1 -k2,2n > annotated.bed
+
+bedtools complement \
+-i annotated.bed \
+-g genome.size > intergenic.bed
+
+#bedtool intersect to 统计表达量
+# WT sRNA
+bedtools intersect -a exon.bed -b col0_sRNA.bedGraph -wa -wb \
+| awk '{sum+=$8} END{print "exon", sum}' 
+
+bedtools intersect -a intron.bed -b col0_sRNA.bedGraph -wa -wb \
+| awk '{sum+=$8} END{print "intron", sum}'
+
+bedtools intersect -a promoter.bed -b col0_sRNA.bedGraph -wa -wb \
+| awk '{sum+=$8} END{print "promoter", sum}'
+
+bedtools intersect -a TE.bed -b col0_sRNA.bedGraph -wa -wb \
+| awk '{sum+=$8} END{print "TE", sum}'
+
+bedtools intersect -a intergenic.bed -b col0_sRNA.bedGraph -wa -wb \
+| awk '{sum+=$8} END{print "intergenic", sum}'
+
+#整理成表格并用excel画柱状图
+feature	WT	RDR6
+exon	2096210	1173010
+intron	379825	177225
+TE	1169650	772713
+intergenic	0	0
+
+
